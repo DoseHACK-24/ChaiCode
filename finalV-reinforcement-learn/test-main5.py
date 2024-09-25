@@ -1,6 +1,7 @@
 import numpy as np
 import tkinter as tk
 from tkinter import messagebox
+import heapq
 
 
 class WarehouseEnv:
@@ -50,8 +51,14 @@ class WarehouseEnv:
                 return True
         return False
 
-
-import heapq
+    def print_grid(self):
+        grid_copy = np.copy(self.grid)
+        for idx, bot_pos in enumerate(self.bots):
+            x, y = bot_pos
+            grid_copy[x, y] = idx + 1  # Mark bots with their indices
+        for row in grid_copy:
+            print(" ".join(str(int(cell)) if cell != 0 else "." for cell in row))
+        print()
 
 
 def a_star(env, start, goal):
@@ -101,7 +108,7 @@ class WarehouseGUI:
         self.canvas = tk.Canvas(self.window, width=500, height=500)
         self.canvas.grid(row=0, column=0, columnspan=2)
 
-        self.clear_button = tk.Button(self.window, text="Clear Canvas", command=self.clear_canvas)  # Added Clear Canvas button
+        self.clear_button = tk.Button(self.window, text="Clear Canvas", command=self.clear_canvas)
         self.clear_button.grid(row=1, column=1)
 
         self.info_panel = tk.Label(self.window, text="Autobot Status")
@@ -127,7 +134,6 @@ class WarehouseGUI:
         self.init_setup()
 
     def clear_canvas(self):
-        # Reset the environment and GUI elements
         self.env.grid = np.zeros(self.grid_size)
         self.starts = []
         self.ends = []
@@ -136,8 +142,6 @@ class WarehouseGUI:
         self.canvas.delete("all")  # Clear everything from the canvas
         self.draw_grid()  # Redraw the grid
         self.update_info_panel("Grid cleared. Start fresh by setting obstacles.")
-        
-        # Re-enable obstacle selection after clearing
         self.canvas.bind("<Button-1>", self.on_click)
         self.window.bind("<Return>", self.confirm_obstacles)
 
@@ -214,19 +218,18 @@ class WarehouseGUI:
         if len(self.starts) < 10:
             if (row, col) not in self.obstacles and (row, col) not in self.starts:
                 self.starts.append((row, col))
+                self.states.append((row, col))
                 self.canvas.create_rectangle(col * self.cell_size, row * self.cell_size,
                                              (col + 1) * self.cell_size, (row + 1) * self.cell_size,
-                                             fill="blue", stipple="gray50", tags="start_end")
-                self.canvas.create_text(col * self.cell_size + self.cell_size // 2,
-                                        row * self.cell_size + self.cell_size // 2,
-                                        text=f"S{len(self.starts)}", fill="black")
-            elif (row, col) in self.starts:
-                self.starts.remove((row, col))
-                self.canvas.create_rectangle(col * self.cell_size, row * self.cell_size,
-                                             (col + 1) * self.cell_size, (row + 1) * self.cell_size,
-                                             outline="black", fill="white")
+                                             outline="black", fill="blue", tags="start_end")
+        else:
+            self.update_info_panel("Maximum of 10 bots allowed.")
 
     def confirm_starts(self, event):
+        if len(self.starts) == 0:
+            self.update_info_panel("At least one bot start position is required.")
+            return
+
         self.update_info_panel("Click on grid to set end position of bot. Right-click to remove.")
         self.canvas.bind("<Button-1>", self.set_end)
         self.window.bind("<Return>", self.confirm_ends)
@@ -239,80 +242,52 @@ class WarehouseGUI:
                 self.ends.append((row, col))
                 self.canvas.create_rectangle(col * self.cell_size, row * self.cell_size,
                                              (col + 1) * self.cell_size, (row + 1) * self.cell_size,
-                                             fill="lightgreen", stipple="gray50", tags="start_end")
-                self.canvas.create_text(col * self.cell_size + self.cell_size // 2,
-                                        row * self.cell_size + self.cell_size // 2,
-                                        text=f"E{len(self.ends)}", fill="black")
-            elif (row, col) in self.ends:
-                self.ends.remove((row, col))
-                self.canvas.create_rectangle(col * self.cell_size, row * self.cell_size,
-                                             (col + 1) * self.cell_size, (row + 1) * self.cell_size,
-                                             outline="black", fill="white")
+                                             outline="black", fill="green", tags="start_end")
+                if len(self.ends) == len(self.starts):
+                    self.update_info_panel("Press Enter to start simulation.")
 
     def confirm_ends(self, event):
-        if len(self.ends) == len(self.starts):
-            self.env.set_starts_and_ends(self.starts, self.ends)
-            self.states = self.starts.copy()
-            self.update_info_panel("Setup complete. Press 'Space' to start.")
-            self.window.bind("<space>", self.run_simulation)
-        else:
-            self.update_info_panel("Start and end positions must match. Please complete setup.")
+        if len(self.ends) < len(self.starts):
+            self.update_info_panel("Each start must have a corresponding end position.")
+            return
 
-    def run_simulation(self, event):
+        self.env.set_starts_and_ends(self.starts, self.ends)
+        self.states = list(self.starts)
+        self.draw_start_and_end()
+        self.update_info_panel("Press Enter to start simulation.")
+        self.window.bind("<Return>", self.start_simulation)
+
+    def start_simulation(self, event):
         self.update_info_panel("Simulation running...")
+        self.simulate()
 
-        paths = []
-        bot_status = ['moving'] * len(self.starts)  # Initialize all bots as moving
-        for idx, (start, goal) in enumerate(zip(self.starts, self.ends)):
-            path = a_star(self.env, start, goal)
-            paths.append(path)
-            print(f"Bot {idx + 1}: {path}")
+    def simulate(self):
+        while not all(self.env.reached_goal(i) for i in range(len(self.states))):
+            self.steps += 1
+            print(f"Step {self.steps} - Current Bot States:")
+            self.env.print_grid()  # Print current grid state to console
+            for bot_idx in range(len(self.states)):
+                if not self.env.reached_goal(bot_idx):
+                    current_state = self.env.get_state(bot_idx)
+                    path = a_star(self.env, current_state, self.env.ends[bot_idx])
 
-        while any([len(path) > 0 for path in paths]):
-            for bot_idx, path in enumerate(paths):
-                if bot_status[bot_idx] == 'waiting':
-                    continue  # Skip this bot if it is waiting
+                    if len(path) > 1:
+                        next_position = path[1]
+                        if not self.env.is_collision_imminent(bot_idx, next_position):
+                            self.env.update_bot_position(bot_idx, next_position)
 
-                if path:
-                    next_step = path[0]  # Get the next step from the path
-                    if not self.env.is_collision_imminent(bot_idx, next_step):
-                        self.states[bot_idx] = next_step
-                        self.env.update_bot_position(bot_idx, next_step)
-                        path.pop(0)  # Remove the step from the path
-                    else:
-                        # Collision detected; set this bot to wait
-                        bot_status[bot_idx] = 'waiting'
-                        self.update_info_panel(f"Bot {bot_idx + 1} is waiting...")
+                    self.states[bot_idx] = self.env.get_state(bot_idx)
 
-                self.draw_bots()
-                self.canvas.update()
-                self.window.after(300)  # Delay to see bot movement
+            self.draw_bots()
+            self.update_info_panel(f"Step {self.steps}. Bots en route: {self.states}")
+            self.window.update()
 
-            # Resolve waiting bots
-            for bot_idx in range(len(paths)):
-                if bot_status[bot_idx] == 'waiting':
-                    # Check if the next step is clear for this bot
-                    if all(self.env.is_collision_imminent(bot_idx, next_step) for next_step in paths[bot_idx]):
-                        continue  # Still waiting
-
-                    # The bot can move again, resume from the last known position
-                    bot_status[bot_idx] = 'moving'  # Set back to moving
-                    self.update_info_panel(f"Bot {bot_idx + 1} resumes moving.")
-
-            # Add a delay after processing all bots
-            self.canvas.update()
-            self.window.after(300)  # Delay to see the overall effect
-
-        self.update_info_panel("Simulation complete.")
-        print("Simulation complete.")
+        messagebox.showinfo("Simulation Complete", f"All bots have reached their goals in {self.steps} steps!")
+        self.update_info_panel("Simulation complete. Press 'Clear Canvas' to reset.")
 
 
-    def run(self):
-        self.window.mainloop()
-
-
-# Example usage
-grid_size = (10, 10)  # Customize grid size here
-env = WarehouseEnv(grid_size)
-gui = WarehouseGUI(env)
-gui.run()
+if __name__ == "__main__":
+    grid_size = (10, 10)
+    env = WarehouseEnv(grid_size)
+    gui = WarehouseGUI(env)
+    gui.window.mainloop()
