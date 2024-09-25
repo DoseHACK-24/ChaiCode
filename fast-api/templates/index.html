@@ -1,0 +1,28 @@
+<!-- /templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Warehouse Robot Simulation</title>
+</head>
+<body>
+    <h1>Warehouse Robot Simulation</h1>
+    <form action="/simulate/" method="post">
+        <label for="rows">Grid Rows:</label>
+        <input type="number" id="rows" name="rows" required><br><br>
+
+        <label for="cols">Grid Columns:</label>
+        <input type="number" id="cols" name="cols" required><br><br>
+
+        <label for="num_robots">Number of Robots:</label>
+        <input type="number" id="num_robots" name="num_robots" required><br><br>
+
+        <label for="central_pickup">Central Pickup (comma-separated, e.g., 1,2):</label>
+        <input type="text" id="central_pickup" name="central_pickup" required><br><br>
+
+        <label for="destinations">Destinations (comma-separated, e.g., 0,2;2,0):</label>
+        <input type="text" id="destinations" name="destinations" required><br><br>
+
+        <input type="submit" value="Run Simulation">
+    </form>
+</body>
+</html>
