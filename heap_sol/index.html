@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autobot Simulation</title>
+    <style>
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(10, 40px);
+            grid-gap: 2px;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            text-align: center;
+            line-height: 40px;
+            font-weight: bold;
+        }
+        .autobot {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .obstacle {
+            background-color: #000;
+        }
+    </style>
+</head>
+<body>
+    <h2>Autobot Warehouse Simulation</h2>
+    <div id="grid" class="grid"></div>
+
+    <script>
+        // Define grid size and obstacles
+        const ROWS = 10, COLS = 10;
+        const obstacles = [[2, 2], [3, 2], [4, 2]];
+
+        // Starting positions and destinations of autobots
+        const autobots = [
+            {start: [0, 0], goal: [5, 5], path: []},
+            {start: [9, 9], goal: [0, 9], path: []},
+        ];
+
+        // Initialize grid
+        const gridElement = document.getElementById('grid');
+
+        function createGrid() {
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.setAttribute('data-row', row);
+                    cell.setAttribute('data-col', col);
+                    
+                    if (obstacles.some(o => o[0] === row && o[1] === col)) {
+                        cell.classList.add('obstacle');
+                    }
+                    gridElement.appendChild(cell);
+                }
+            }
+        }
+
+        // Update autobot positions on the grid
+        function updateGrid(autobotPositions) {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('autobot');
+            });
+            autobotPositions.forEach(position => {
+                const row = position[0], col = position[1];
+                const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+                cell.classList.add('autobot');
+            });
+        }
+
+        // Simulate movement
+        function simulate() {
+            let timeStep = 0;
+            const autobotPositions = autobots.map(a => a.start);
+            
+            function moveAutobots() {
+                timeStep++;
+                console.log(`Time step: ${timeStep}`);
+
+                autobotPositions.forEach((position, index) => {
+                    const autobot = autobots[index];
+                    if (position[0] < autobot.goal[0]) position[0]++;
+                    else if (position[0] > autobot.goal[0]) position[0]--;
+                    
+                    if (position[1] < autobot.goal[1]) position[1]++;
+                    else if (position[1] > autobot.goal[1]) position[1]--;
+                });
+                
+                updateGrid(autobotPositions);
+                
+                if (!autobotPositions.every((pos, i) => pos[0] === autobots[i].goal[0] && pos[1] === autobots[i].goal[1])) {
+                    setTimeout(moveAutobots, 500);
+                }
+            }
+            
+            moveAutobots();
+        }
+
+        createGrid();
+        simulate();
+    </script>
+</body>
+</html>
