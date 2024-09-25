@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <title>Autobot Grid Movement</title>
+</head>
+<body>
+    <div>
+        <h1>Autobot Grid Movement</h1>
+        <button onclick="initializeAutobots()">Start Simulation</button>
+    </div>
+
+    <script>
+        let rows = 10;
+        let cols = 10;
+        let gridSize = 50;
+        let autobots = [];
+        let timeStep = 0;
+        let paths = {};
+
+        // Function to initialize autobots by fetching paths from backend
+        async function initializeAutobots() {
+            try {
+                const response = await fetch("http://localhost:8000/calculate_paths/", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        grid_size: [10, 10],
+                        obstacles: [[2, 2], [3, 2], [4, 2], [4,1],[3,9]],  // Modify this based on actual obstacles
+                        autobots: [
+                            {start: [0, 0], goal: [5, 5]},
+                            {start: [9, 9], goal: [0, 9]},
+                            {start: [5, 2], goal: [9, 1]},
+                            {start: [1, 3], goal: [5, 3]},
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                paths = data.paths;
+                console.log("Paths:", paths);
+
+                // Start simulation after paths are fetched
+                timeStep = 0;
+                loop();  // Start p5.js draw loop
+            } catch (error) {
+                console.error("Error fetching paths:", error);
+            }
+        }
+
+        function setup() {
+            createCanvas(cols * gridSize, rows * gridSize);
+            frameRate(2);  // Controls the speed of simulation
+            noLoop();  // Stop drawing initially; wait for button click
+        }
+
+        function draw() {
+            background(255);
+
+            // Draw grid
+            for (let i = 0; i < cols; i++) {
+                for (let j = 0; j < rows; j++) {
+                    stroke(0);
+                    fill(240);
+                    rect(i * gridSize, j * gridSize, gridSize, gridSize);
+                }
+            }
+
+            // Draw obstacles
+            fill('red');
+            for (let obstacle of [[2, 2], [3, 2], [4, 2], [4,1],[3,9]]) {  // Modify obstacle positions based on backend
+                rect(obstacle[1] * gridSize, obstacle[0] * gridSize, gridSize, gridSize);
+            }
+
+            // Draw autobots' paths
+            let allAutobotsDone = true;
+            for (let autobot in paths) {
+                let path = paths[autobot];
+                if (timeStep < path.length) {
+                    allAutobotsDone = false;
+                    let [x, y] = path[timeStep];
+                    fill('blue');  // Autobots color
+                    rect(x * gridSize, y * gridSize, gridSize, gridSize);
+                }
+            }
+
+            // Increment time step for next frame
+            timeStep++;
+
+            // Stop loop if all autobots have completed their paths
+            if (allAutobotsDone) {
+                noLoop();  // Stop the loop when the simulation finishes
+            }
+        }
+    </script>
+</body>
+</html>

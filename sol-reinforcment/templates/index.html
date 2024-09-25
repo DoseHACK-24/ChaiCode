@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autobot Navigation</title>
+    <style>
+        .container {
+            text-align: center;
+        }
+
+        #grid-container {
+            display: grid;
+            grid-template-columns: repeat(5, 50px);
+            grid-gap: 5px;
+        }
+
+        .grid-cell {
+            width: 50px;
+            height: 50px;
+            background-color: #ddd;
+            border: 1px solid #333;
+        }
+
+        .grid-cell.start {
+            background-color: green;
+        }
+
+        .grid-cell.end {
+            background-color: red;
+        }
+
+        .grid-cell.obstacle {
+            background-color: black;
+        }
+
+        .grid-cell.autobot {
+            background-color: blue;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Autobot Navigation</h1>
+        <div id="grid-container"></div>
+
+        <div class="controls">
+            <button onclick="startNavigation()">Start Navigation</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            createGrid(5, 5);
+        });
+
+        function createGrid(rows, cols) {
+            const container = document.getElementById('grid-container');
+            container.style.gridTemplateColumns = `repeat(${cols}, 50px)`;
+
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    let cell = document.createElement('div');
+                    cell.classList.add('grid-cell');
+                    container.appendChild(cell);
+                }
+            }
+        }
+
+        function startNavigation() {
+            const grid = [
+                ['A', '.', '.', 'X', 'B'],
+                ['.', 'X', '.', '.', '.'],
+                ['.', '.', 'X', '.', '.'],
+                ['.', '.', '.', '.', '.'],
+                ['A', 'X', '.', '.', 'B']
+            ];
+
+            const start_positions = [[0, 0], [4, 0]];
+            const end_positions = [[0, 4], [4, 4]];
+
+            fetch('/navigate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ grid, start_positions, end_positions })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Autobot movements:', data);
+                    // Handle the response and visualize the movements
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+    </script>
+</body>
+
+</html>
