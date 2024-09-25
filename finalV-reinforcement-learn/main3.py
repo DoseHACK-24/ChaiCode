@@ -262,6 +262,7 @@ class WarehouseGUI:
         self.update_info_panel("Simulation running...")
 
         paths = []
+        bot_status = ['moving'] * len(self.starts)  # Initialize all bots as moving
         for idx, (start, goal) in enumerate(zip(self.starts, self.ends)):
             path = a_star(self.env, start, goal)
             paths.append(path)
@@ -269,22 +270,45 @@ class WarehouseGUI:
 
         while any([len(path) > 0 for path in paths]):
             for bot_idx, path in enumerate(paths):
+                if bot_status[bot_idx] == 'waiting':
+                    continue  # Skip this bot if it is waiting
+
                 if path:
-                    next_step = path.pop(0)
+                    next_step = path[0]  # Get the next step from the path
                     if not self.env.is_collision_imminent(bot_idx, next_step):
                         self.states[bot_idx] = next_step
                         self.env.update_bot_position(bot_idx, next_step)
+                        path.pop(0)  # Remove the step from the path
+                    else:
+                        # Collision detected; set this bot to wait
+                        bot_status[bot_idx] = 'waiting'
+                        self.update_info_panel(f"Bot {bot_idx + 1} is waiting...")
+
                 self.draw_bots()
                 self.canvas.update()
                 self.window.after(300)  # Delay to see bot movement
 
+            # Resolve waiting bots
+            for bot_idx in range(len(paths)):
+                if bot_status[bot_idx] == 'waiting':
+                    # Check if the next step is clear for this bot
+                    if all(self.env.is_collision_imminent(bot_idx, next_step) for next_step in paths[bot_idx]):
+                        continue  # Still waiting
+
+                    # The bot can move again, resume from the last known position
+                    bot_status[bot_idx] = 'moving'  # Set back to moving
+                    self.update_info_panel(f"Bot {bot_idx + 1} resumes moving.")
+
+            # Add a delay after processing all bots
+            self.canvas.update()
+            self.window.after(300)  # Delay to see the overall effect
+
         self.update_info_panel("Simulation complete.")
         print("Simulation complete.")
 
+
     def run(self):
         self.window.mainloop()
-
-    
 
 
 # Example usage
