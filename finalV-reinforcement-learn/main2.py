@@ -1,4 +1,6 @@
 import numpy as np
+import tkinter as tk
+from tkinter import simpledialog
 
 class WarehouseEnv:
     def __init__(self, grid_size, starts, ends, obstacles):
@@ -77,8 +79,6 @@ def reconstruct_path(came_from, current):
         current = came_from[current]
         total_path.append(current)
     return total_path[::-1]  # Return reversed path
-
-import tkinter as tk
 
 class WarehouseGUI:
     def __init__(self, env):
@@ -166,11 +166,37 @@ class WarehouseGUI:
         step()
         self.window.mainloop()
 
+def get_user_input():
+    grid_size = simpledialog.askstring("Input", "Enter grid size (e.g. 5,5):")
+    grid_size = tuple(map(int, grid_size.split(',')))
+
+    num_bots = int(simpledialog.askstring("Input", "Enter the number of bots:"))
+
+    starts = []
+    ends = []
+    for i in range(num_bots):
+        start = simpledialog.askstring(f"Input", f"Enter start position for bot {i+1} (e.g. 1,1):")
+        start = tuple(map(int, start.split(',')))
+        starts.append(start)
+
+        end = simpledialog.askstring(f"Input", f"Enter end position for bot {i+1} (e.g. 4,4):")
+        end = tuple(map(int, end.split(',')))
+        ends.append(end)
+
+    obstacles = []
+    num_obstacles = int(simpledialog.askstring("Input", "Enter the number of obstacles:"))
+    for i in range(num_obstacles):
+        obs = simpledialog.askstring(f"Input", f"Enter obstacle position {i+1} (e.g. 2,2):")
+        obs = tuple(map(int, obs.split(',')))
+        obstacles.append(obs)
+
+    return grid_size, starts, ends, obstacles
+
 if __name__ == "__main__":
-    grid_size = (7, 7)
-    starts = [(2,1), (3,5),(4,3),(5,4)]  # Starting positions for the bots
-    ends = [(4,5), (3,1), (2,3),(1,2)]     # Destination positions for the bots
-    obstacles = [(1,1),(2,2),(3, 3),(4,4), (5, 5)]  # Obstacles in the grid
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+
+    grid_size, starts, ends, obstacles = get_user_input()
 
     env = WarehouseEnv(grid_size, starts, ends, obstacles)
     gui = WarehouseGUI(env)
