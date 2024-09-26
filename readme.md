@@ -28,7 +28,7 @@ ChaiCode/
 
 ## Demonstration Video
 
-[![Watch the video](https://im g.youtube.com/vi/T-ztCxK4H00/maxresdefault.jpg)](https://youtu.be/T-ztC xK4H00?si=CKOS-FWeSMNJ6NH)
+[![Watch on YouTube](https://img.youtube.com/vi/7aMxGzzzqv4/0.jpg)](https://youtu.be/7aMxGzzzqv4?si=ujTdLcUShgp6K1Xn)
 
 ## Prerequisites
 
