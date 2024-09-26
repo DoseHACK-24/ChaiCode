@@ -1,80 +1,82 @@
 # 🤖 Autobot Warehouse Simulation
 
+![GitHub forks](https://img.shields.io/github/forks/DoseHACK-24/ChaiCode)
+![GitHub contributors](https://img.shields.io/github/contributors/DoseHACK-24/ChaiCode)
+![GitHub watchers](https://img.shields.io/github/watchers/DoseHACK-24/ChaiCode)
+
+
 This project is a simulation of autonomous bots navigating a warehouse environment using the A* algorithm for pathfinding. The simulation is built using Python and Tkinter for the graphical interface. Bots are assigned starting and goal positions, and the environment can be customized with obstacles. The simulation demonstrates the efficient movement of bots while avoiding collisions with obstacles and each-others.
+
+## Project Structure
+
+```bash
+ChaiCode/
+├
+├── .gitignore                     # Ignore file for GitHub
+├── main.py                        # Main Python code file
+├── requirement.txt                # Dependencies and scripts/library
+└── README.md                      # Project documentation
+```
 
 ## Features
 
 - **Customizable Grid**: Define grid size and place obstacles.
 - **Multiple Bots**: Set starting and ending positions for multiple bots.
-- **Pathfinding**: Uses A* algorithm to find the shortest path between start and goal.
-- **Collision Avoidance**: Bots avoid collisions during movement.
-- **Real-time Visualization**: The entire bot movement is displayed on the graphical interface.
+- **Pathfinding**: A* algorithm for shortest pathfinding.
+- **Collision Avoidance**: Bots avoid each other during movement.
+- **Real-time Visualization**: Displays bot movement in real-time on the GUI.
 
 ## Demonstration Video
 
-[![Watch the video](https://i mg.youtube.com/vi/T-ztCxK4H00/maxresdefault.jpg)](https://youtu.be/T-ztCxK4H00?si=CKOS-FWeSMNJ6NH)
+[![Watch the video](https://img.youtube.com/vi/T-ztCxK4H00/maxresdefault.jpg)](https://youtu.be/T-ztCxK4H00?si=CKOS-FWeSMNJ6NH)
 
 ## Prerequisites
 
-Ensure you have Python installed on your system. You can download it from [here](https://www.python.org/downloads/).
+Ensure Python is installed. Download [here](https://www.python.org/downloads/).
 
 ### Dependencies
 
-- **Tkinter**: Python's standard GUI package.
-- **NumPy**: Used for grid management and operations.
+- **Tkinter**: Standard Python GUI package.
+- **NumPy**: Grid management and mathematical operations.
 
-You can install the required dependencies using `pip`:
+Install dependencies using:
 
 ```bash
-pip install numpy
+pip install -r requirements.txt
 ```
 
-## How to Install
+## Installation
 
-1. Clone this repository:
+1. Clone the repository:
 
    ```bash
-   git clone https://github.com/yourusername/autobot-warehouse-simulation.git
+   git clone https://github.com/DoseHACK-24/ChaiCode.git
    ```
 
 2. Navigate to the project directory:
 
    ```bash
-   cd autobot-warehouse-simulation
+   cd ChaiCode
    ```
 
-3. Install the necessary dependencies:
+3. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-   (If a `requirements.txt` file is not provided, you can manually install `numpy` and `tkinter` using the commands above.)
+## Running the Simulation
 
-## How to Run the Simulation
+Run the application using:
 
-1. After installing the dependencies, run the following command in the project directory to start the application:
+```bash
+python main.py
+```
 
-   ```bash
-   python warehouse_simulation.py
-   ```
+- **Left Click**: Place obstacles.
+- **Enter**: Set bot start and end positions.
+- **Space Bar**: Start the simulation.
 
-2. The GUI will open where you can interact with the grid.
-
-   - **Left Click**: Place obstacles on the grid.
-   - **Press Enter**: Confirm obstacle placement and switch to adding start positions for the bots.
-   - **Press Enter Again**: Confirm start positions and proceed to set the end positions.
-   - **Space Bar**: Start the bot simulation.
-
-## Usage
-
-1. Set up the warehouse grid by clicking to add obstacles.
-2. Define start and end positions for each bot.
-3. Watch the simulation as the bots navigate from their start to end positions, avoiding obstacles and other bots.
-
-## Contributing
-
-Feel free to fork this repository, open issues, or create pull requests to improve the simulation. Contributions are always welcome!
 
 ## License
 
