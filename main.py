@@ -1,241 +1,413 @@
-import pygame
+import numpy as np
+import tkinter as tk
+from tkinter import messagebox
 import heapq
-import random
+import logging
+import copy
 
-# Grid parameters for a 5x5 warehouse
-WIDTH, HEIGHT = 500, 500
-ROWS, COLS = 5, 5
-SQUARE_SIZE = WIDTH // COLS
-FPS = 2
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
 
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-BLUE = (0, 0, 255)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-YELLOW = (255, 255, 0)
+class WarehouseEnv:
+    def __init__(self, grid_size):
+        self.grid_size = grid_size
+        self.obstacles = set()
+        self.grid = np.zeros(grid_size, dtype=int)
 
-# Initialize Pygame window
-pygame.init()
-WIN = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Warehouse Robot Simulation - Two Robots")
+    def set_obstacles(self, obstacles):
+        self.obstacles = set(obstacles)
+        for obs in self.obstacles:
+            self.grid[obs] = -1  # Mark obstacles
+        logging.info(f"Obstacles set at: {self.obstacles}")
 
-# Define the 5x5 grid (Warehouse simulation)
-# 'C' represents the central pickup point, 'D' represents destinations
-grid = [
-    ['.', '.', 'D', '.', '.'],
-    ['.', '.', 'C', '.', '.'],
-    ['D', '.', '.', '.', 'D'],
-    ['.', '.', '.', '.', '.'],
-    ['D', '.', '.', '.', 'D']
-]
+    def is_valid_move(self, position):
+        x, y = position
+        return (0 <= x < self.grid_size[0]) and (0 <= y < self.grid_size[1]) and self.grid[position] != -1
 
-# Central pickup point
-CENTRAL_PICKUP = (1, 2)
+    def get_neighbors(self, position):
+        x, y = position
+        neighbors = [
+            (x + 1, y), (x - 1, y),
+            (x, y + 1), (x, y - 1),
+            position  # Wait action
+        ]
+        return [n for n in neighbors if self.is_valid_move(n)]
 
-# List of initial destinations
-DESTINATIONS = [(0, 2), (2, 0), (2, 4), (4, 0), (4, 4)]
-
-# List of items associated with each destination
-ITEMS = {
-    (0, 2): 'Item A',
-    (2, 0): 'Item B',
-    (2, 4): 'Item C',
-    (4, 0): 'Item D',
-    (4, 4): 'Item E'
-}
-
-# Robot class to hold robot details
-class Robot:
-    def __init__(self, id, color):
-        self.id = id
-        self.position = CENTRAL_PICKUP  # Start at central pickup point
-        self.color = color
-        self.path = []  # Path to follow
-        self.path_index = 0  # Index to track position in path
-        self.task = None
-        self.state = "to_drop"  # Possible states: "to_drop", "returning", "idle"
-        self.waiting = False  # Used to manage waiting state
-        self.priority = random.random()  # Random priority for deadlock resolution
-
-# Heuristic: Manhattan distance
-def manhattan_distance(a, b):
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
-
-# Define possible movements (up, down, left, right)
-moves = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-# Function to find neighbors in the grid
-def get_neighbors(position):
-    x, y = position
-    neighbors = []
-    for move in moves:
-        new_x, new_y = x + move[0], y + move[1]
-        if 0 <= new_x < ROWS and 0 <= new_y < COLS:
-            neighbors.append((new_x, new_y))
-    return neighbors
-
-# A* algorithm to find the shortest path from start to goal
-def a_star(start, goal):
+def a_star(env, start, goal, agent, constraints, stats):
     open_set = []
-    heapq.heappush(open_set, (0, start))
-
-    g_score = {start: 0}
-    f_score = {start: manhattan_distance(start, goal)}
+    heapq.heappush(open_set, (heuristic(start, goal), 0, start))
     came_from = {}
+    g_score = {(start, 0): 0}
+    expanded_nodes = 0
 
     while open_set:
-        _, current = heapq.heappop(open_set)
+        _, current_time, current = heapq.heappop(open_set)
+        expanded_nodes += 1
 
-        if current == goal:
-            path = []
-            while current in came_from:
-                path.append(current)
-                current = came_from[current]
-            return path[::-1]  # Return reversed path
+        if current == goal and not has_future_constraints(current, current_time, agent, constraints):
+            path = reconstruct_path(came_from, current, current_time)
+            stats['expanded_nodes'] += expanded_nodes
+            return path
 
-        for neighbor in get_neighbors(current):
-            tentative_g_score = g_score[current] + 1
-            if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g_score
-                f_score[neighbor] = tentative_g_score + manhattan_distance(neighbor, goal)
-                heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        for neighbor in env.get_neighbors(current):
+            tentative_g_score = g_score[(current, current_time)] + 1
+            time = current_time + 1
 
-    return None  # No path found
+            if violates_constraint(current, neighbor, time, agent, constraints):
+                continue
 
-# Assign tasks dynamically based on the items, ensuring no duplicate destinations
-def assign_new_task(remaining_destinations, assigned_destinations):
-    available_destinations = [d for d in remaining_destinations if d not in assigned_destinations]
-    if available_destinations:
-        return random.choice(available_destinations)
+            state_time = (neighbor, time)
+            if state_time not in g_score or tentative_g_score < g_score[state_time]:
+                came_from[state_time] = (current, current_time)
+                g_score[state_time] = tentative_g_score
+                f_score = tentative_g_score + heuristic(neighbor, goal)
+                heapq.heappush(open_set, (f_score, time, neighbor))
+
+    stats['expanded_nodes'] += expanded_nodes
     return None
 
-# Pygame rendering function
-def draw_grid(remaining_destinations):
-    WIN.fill(WHITE)
+def violates_constraint(curr_pos, next_pos, time, agent, constraints):
+    for constraint in constraints:
+        if constraint['agent'] == agent:
+            if constraint['type'] == 'vertex' and constraint['loc'] == [next_pos] and constraint['time'] == time:
+                return True
+            if constraint['type'] == 'edge' and constraint['loc'] == [curr_pos, next_pos] and constraint['time'] == time:
+                return True
+    return False
 
-    # Draw the grid
-    for row in range(ROWS):
-        for col in range(COLS):
-            rect = pygame.Rect(col * SQUARE_SIZE, row * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE)
-            pygame.draw.rect(WIN, BLACK, rect, 1)
-            if grid[row][col] == 'C':
-                pygame.draw.circle(WIN, GREEN, (col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2), SQUARE_SIZE // 3)
-            elif (row, col) in remaining_destinations:
-                pygame.draw.circle(WIN, YELLOW, (col * SQUARE_SIZE + SQUARE_SIZE // 2, row * SQUARE_SIZE + SQUARE_SIZE // 2), SQUARE_SIZE // 3)
-
-# Draw robots
-def draw_robots(robots):
-    for robot in robots:
-        x, y = robot.position
-        pygame.draw.circle(WIN, robot.color, (y * SQUARE_SIZE + SQUARE_SIZE // 2, x * SQUARE_SIZE + SQUARE_SIZE // 2), SQUARE_SIZE // 3)
-
-# Move robots smoothly (simulate human-like behavior)
-def move_robot_smoothly(robot, path, path_index):
-    if path_index < len(path):
-        robot.position = path[path_index]
-
-# Collision detection to check if next move will cause a collision
-def will_collide(next_position, other_robots):
-    for other_robot in other_robots:
-        if next_position == other_robot.position:
+def has_future_constraints(pos, time, agent, constraints):
+    for constraint in constraints:
+        if constraint['agent'] == agent and constraint['time'] > time and constraint['loc'] == [pos]:
             return True
     return False
 
-# Pygame main loop for two robots
-def main():
-    clock = pygame.time.Clock()
-    run = True
+def heuristic(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    # Initialize two robots
-    robots = [Robot(1, BLUE), Robot(2, RED)]
-    remaining_destinations = DESTINATIONS.copy()
+def reconstruct_path(came_from, current, time):
+    total_path = [(current, time)]
+    while (current, time) in came_from:
+        current, time = came_from[(current, time)]
+        total_path.append((current, time))
+    path = [pos for pos, t in reversed(total_path)]
+    return path
 
-    robot_paths = {}
-    assignments = {}
-    path_index = {}
+def detect_conflicts(paths):
+    max_time = max(len(path) for path in paths)
+    conflicts = []
+    for t in range(max_time):
+        positions = {}
+        for agent, path in enumerate(paths):
+            if t < len(path):
+                pos = path[t]
+            else:
+                pos = path[-1]  # Wait at the goal
+            if pos in positions:
+                conflicts.append({'time': t, 'agents': [positions[pos], agent], 'loc': [pos], 'type': 'vertex'})
+            positions[pos] = agent
 
-    assigned_destinations = set()
+        # Edge conflicts
+        for agent, path in enumerate(paths):
+            if t + 1 < len(path):
+                curr_pos = path[t]
+                next_pos = path[t + 1]
+                for other_agent, other_path in enumerate(paths):
+                    if agent == other_agent:
+                        continue
+                    if t + 1 < len(other_path):
+                        other_curr = other_path[t]
+                        other_next = other_path[t + 1]
+                        if curr_pos == other_next and next_pos == other_curr:
+                            conflicts.append({'time': t + 1, 'agents': [agent, other_agent],
+                                              'loc': [curr_pos, next_pos], 'type': 'edge'})
+    return conflicts
 
-    # Assign the first tasks dynamically to each robot
-    for robot in robots:
-        random_destination = assign_new_task(remaining_destinations, assigned_destinations)
-        if random_destination is not None:
-            assignments[robot.id] = random_destination
-            assigned_destinations.add(random_destination)
-            robot.path = a_star(CENTRAL_PICKUP, random_destination)
-            robot_paths[robot.id] = robot.path if robot.path else []
-            path_index[robot.id] = 0
-            print(f"Robot {robot.id} assigned task: Deliver {ITEMS[random_destination]} to {random_destination}")
+def CBS(env, starts, goals):
+    # Initialize the root of the search tree with no constraints and initial paths
+    root = {'paths': [], 'constraints': [], 'cost': 0}
+    priorities = {i: 0 for i in range(len(starts))}  # Dynamic priorities
+    stats = {'expanded_nodes': 0}  # For tracking the number of expanded nodes
 
-    while run:
-        clock.tick(FPS)
+    # Initial path finding for all agents
+    for agent in range(len(starts)):
+        path = a_star(env, starts[agent], goals[agent], agent, [], stats)
+        if path is None:
+            return None, stats
+        root['paths'].append(path)
+        root['cost'] += len(path)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                run = False
+    # Priority queue for managing search nodes
+    open_set = [root]
 
-        # Draw grid and robots
-        draw_grid(remaining_destinations)
-        draw_robots(robots)
+    while open_set:
+        current = open_set.pop(0)
+        stats['expanded_nodes'] += 1  # Counting the CBS node expansion
+        conflicts = detect_conflicts(current['paths'])
 
-        # Move robots to destinations, then return to pickup point
-        for robot in robots:
-            other_robots = [r for r in robots if r.id != robot.id]
+        if not conflicts:
+            return current['paths'], stats  # No conflicts, solution found
 
-            if robot.state == "to_drop":
-                # Check if robot needs to wait due to collision risk
-                if path_index[robot.id] < len(robot_paths[robot.id]):
-                    next_position = robot_paths[robot.id][path_index[robot.id]]
-                    if not will_collide(next_position, other_robots) or (robot.waiting and robot.priority > other_robots[0].priority):
-                        move_robot_smoothly(robot, robot_paths[robot.id], path_index[robot.id])
-                        path_index[robot.id] += 1
-                        robot.waiting = False
-                    else:
-                        # If there's a collision risk, robot will wait
-                        robot.waiting = True
-                else:
-                    # Reached the drop destination, remove the destination
-                    if assignments[robot.id] in remaining_destinations:
-                        print(f"Robot {robot.id} delivered {ITEMS[assignments[robot.id]]} to {assignments[robot.id]}")
-                        remaining_destinations.remove(assignments[robot.id])  # Remove destination after delivery
-                        assigned_destinations.remove(assignments[robot.id])  # Remove from assigned destinations
-                    robot.path = a_star(robot.position, CENTRAL_PICKUP)
-                    path_index[robot.id] = 0
-                    robot.state = "returning"
+        # Handle conflict
+        conflict = conflicts[0]  # Consider handling more than one conflict
+        for agent in conflict['agents']:
+            new_constraints = list(current['constraints'])  # Copy constraints
+            new_constraints.append({
+                'agent': agent,
+                'time': conflict['time'],
+                'loc': conflict['loc'],
+                'type': conflict['type']
+            })
 
-            elif robot.state == "returning":
-                # Return to the central pickup point
-                if path_index[robot.id] < len(robot.path):
-                    next_position = robot.path[path_index[robot.id]]
-                    if not will_collide(next_position, other_robots) or (robot.waiting and robot.priority > other_robots[0].priority):
-                        move_robot_smoothly(robot, robot.path, path_index[robot.id])
-                        path_index[robot.id] += 1
-                        robot.waiting = False
-                    else:
-                        # If there's a collision risk, robot will wait
-                        robot.waiting = True
-                else:
-                    # Arrived at the pickup point, assign a new random task
-                    if len(remaining_destinations) == 0:
-                        robot.state = "idle"  # No more destinations, robot goes idle
-                        print(f"Robot {robot.id} has no more destinations to visit!")
-                    else:
-                        robot.state = "to_drop"
-                        random_destination = assign_new_task(remaining_destinations, assigned_destinations)
-                        if random_destination is not None:
-                            robot.path = a_star(CENTRAL_PICKUP, random_destination)
-                            robot_paths[robot.id] = robot.path  # Reset path
-                            assignments[robot.id] = random_destination
-                            assigned_destinations.add(random_destination)
-                            path_index[robot.id] = 0
-                            print(f"Robot {robot.id} assigned new task: Deliver {ITEMS[random_destination]} to {random_destination}")
+            # Re-plan path for the agent with new constraints
+            new_paths = current['paths'].copy()
+            new_path = a_star(env, starts[agent], goals[agent], agent, new_constraints, stats)
+            if new_path is None:
+                continue  # No valid path found, skip this branch
 
-        pygame.display.update()
+            # Create new node in the search tree
+            new_paths[agent] = new_path
+            new_node = {
+                'paths': new_paths,
+                'constraints': new_constraints,
+                'cost': sum(len(p) for p in new_paths) + sum(priorities.values())  # Adjust cost by priorities
+            }
+            open_set.append(new_node)
 
-    pygame.quit()
+            # Adjust priorities to handle deadlocks dynamically
+            priorities[agent] += 1  # Increase priority for the current agent
+
+        # Sort open set based on the cost to prioritize nodes with lower path costs
+        open_set.sort(key=lambda x: x['cost'])
+
+    return None, stats  # If the loop exits without returning, no solution was found
+
+class WarehouseGUI:
+    def __init__(self, env):
+        self.env = env
+        self.window = tk.Tk()
+        self.window.title("Autobot Warehouse")
+
+        self.canvas_size = 500
+        self.canvas = tk.Canvas(self.window, width=self.canvas_size, height=self.canvas_size)
+        self.canvas.grid(row=0, column=0, columnspan=2)
+
+        self.info_panel = tk.Label(self.window, text="Autobot Status")
+        self.info_panel.grid(row=1, column=0)
+
+        self.clear_button = tk.Button(self.window, text="Clear Canvas", command=self.clear_canvas)
+        self.clear_button.grid(row=1, column=1)
+
+        self.grid_size = env.grid_size
+        self.cell_size = self.canvas_size // self.grid_size[0]
+
+        self.starts = []
+        self.ends = []
+        self.states = []
+        self.obstacles = []
+
+        self.colors = ["blue", "red", "green", "orange", "purple", "yellow", "cyan", "magenta", "brown", "pink"]
+        self.robot_colors = {i: self.colors[i % len(self.colors)] for i in range(10)}
+
+        self.canvas.bind("<Button-1>", self.on_left_click)
+        self.canvas.bind("<Button-3>", self.on_right_click)
+
+        self.init_setup()
+
+    def clear_canvas(self):
+        self.env.grid = np.zeros(self.grid_size)
+        self.starts = []
+        self.ends = []
+        self.states = []
+        self.obstacles = []
+        self.canvas.delete("all")
+        self.draw_grid()
+        self.update_info_panel("Canvas cleared. Start by setting obstacles.")
+        self.mode = "obstacles"
+        self.window.bind("<Return>", self.confirm_obstacles)
+
+    def init_setup(self):
+        self.draw_grid()
+        self.update_info_panel("Click to set obstacles ('O'). Right-click to remove.")
+        self.mode = "obstacles"
+        self.window.bind("<Return>", self.confirm_obstacles)
+
+    def draw_grid(self):
+        for i in range(self.grid_size[0]):
+            for j in range(self.grid_size[1]):
+                x0, y0 = j * self.cell_size, i * self.cell_size
+                x1, y1 = x0 + self.cell_size, y0 + self.cell_size
+                self.canvas.create_rectangle(x0, y0, x1, y1, outline="black", fill="white")
+
+    def draw_cell(self, x, y, fill_color, text=None, tag=""):
+        x0 = y * self.cell_size
+        y0 = x * self.cell_size
+        x1 = x0 + self.cell_size
+        y1 = y0 + self.cell_size
+        self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill_color, tags=tag, outline="black")
+        if text:
+            self.canvas.create_text(x0 + self.cell_size // 2, y0 + self.cell_size // 2, text=text, fill="black")
+
+    def update_info_panel(self, text):
+        self.info_panel.config(text=text)
+
+    def on_left_click(self, event):
+        row, col = event.y // self.cell_size, event.x // self.cell_size
+        if self.mode == "obstacles":
+            if (row, col) not in self.obstacles:
+                self.obstacles.append((row, col))
+                self.env.grid[row, col] = -1
+                self.draw_cell(row, col, "gray", "O")
+                logging.info(f"Obstacle added at: {(row, col)}")
+        elif self.mode == "starts":
+            if len(self.starts) < 10 and (row, col) not in self.starts and (row, col) not in self.obstacles:
+                self.starts.append((row, col))
+                idx = len(self.starts) - 1
+                color = self.robot_colors[idx]
+                self.draw_cell(row, col, color, f"r{idx + 1}")
+                logging.info(f"Start position for robot {idx + 1} set at: {(row, col)}")
+        elif self.mode == "ends":
+            if len(self.ends) < len(self.starts) and (row, col) not in self.ends and (row, col) not in self.obstacles:
+                self.ends.append((row, col))
+                idx = len(self.ends) - 1
+                self.draw_cell(row, col, "lightgreen", f"d{idx + 1}")
+                logging.info(f"End position for robot {idx + 1} set at: {(row, col)}")
+
+    def on_right_click(self, event):
+        row, col = event.y // self.cell_size, event.x // self.cell_size
+        if self.mode == "obstacles" and (row, col) in self.obstacles:
+            self.obstacles.remove((row, col))
+            self.env.grid[row, col] = 0
+            self.draw_cell(row, col, "white")
+            logging.info(f"Obstacle removed from: {(row, col)}")
+        elif self.mode == "starts" and (row, col) in self.starts:
+            idx = self.starts.index((row, col))
+            self.starts.pop(idx)
+            self.draw_cell(row, col, "white")
+            logging.info(f"Start position for robot {idx + 1} removed from: {(row, col)}")
+            # Adjust robot indices
+            for i in range(idx, len(self.starts)):
+                self.draw_cell(self.starts[i][0], self.starts[i][1], self.robot_colors[i], f"r{i + 1}")
+        elif self.mode == "ends" and (row, col) in self.ends:
+            idx = self.ends.index((row, col))
+            self.ends.pop(idx)
+            self.draw_cell(row, col, "white")
+            logging.info(f"End position for robot {idx + 1} removed from: {(row, col)}")
+            # Adjust destination indices
+            for i in range(idx, len(self.ends)):
+                self.draw_cell(self.ends[i][0], self.ends[i][1], "lightgreen", f"d{i + 1}")
+
+    def confirm_obstacles(self, event):
+        self.env.set_obstacles(self.obstacles)
+        self.update_info_panel("Click to set start positions ('r1', 'r2', ...). Right-click to remove.")
+        self.mode = "starts"
+        self.window.bind("<Return>", self.confirm_starts)
+
+    def confirm_starts(self, event):
+        if len(self.starts) > 0:
+            self.update_info_panel("Click to set end positions ('d1', 'd2', ...). Right-click to remove.")
+            self.mode = "ends"
+            self.window.bind("<Return>", self.confirm_ends)
+        else:
+            messagebox.showwarning("Input Required", "Please set at least one start position.")
+
+    def confirm_ends(self, event):
+        if len(self.ends) == len(self.starts):
+            self.update_info_panel("Press Enter to start simulation.")
+            self.mode = "simulate"
+            self.window.bind("<Return>", self.start_simulation)
+        else:
+            messagebox.showwarning("Input Required", "Please set end positions for all robots.")
+
+    def start_simulation(self, event):
+        self.states = list(self.starts)
+        self.draw_start_and_end()
+        paths, stats = CBS(self.env, self.starts, self.ends)
+        self.paths = paths
+        if self.paths:
+            # Calculate total number of commands for each bot
+            self.commands_per_bot = [len(path) - 1 for path in self.paths]
+            average_commands = sum(self.commands_per_bot) / len(self.commands_per_bot)
+            max_commands = max(self.commands_per_bot)
+            logging.info("Total Number of Movements/Commands:")
+            for idx, commands in enumerate(self.commands_per_bot):
+                logging.info(f"Bot {idx + 1}: {commands} commands")
+            logging.info(f"Average number of commands: {average_commands}")
+            logging.info(f"Maximum number of commands: {max_commands} (determines when the test case finishes)")
+            messagebox.showinfo("Simulation Statistics",
+                                f"Total Commands per Bot:\n" +
+                                "\n".join([f"Bot {idx + 1}: {commands}" for idx, commands in enumerate(self.commands_per_bot)]) +
+                                f"\n\nAverage Commands: {average_commands:.2f}\n" +
+                                f"Maximum Commands: {max_commands}")
+            self.steps = 0
+            self.reached = [False] * len(self.paths)  # Track which robots have reached their destinations
+            self.update_info_panel("Simulation started.")
+            self.run_simulation_step()
+        else:
+            messagebox.showerror("No Solution", "No valid paths found for all robots.")
+            logging.info(f"No solution found after {stats['expanded_nodes']} commands.")
+            self.update_info_panel(f"No solution found after {stats['expanded_nodes']} commands.")
+
+    def run_simulation_step(self):
+        all_reached = True
+        for idx, path in enumerate(self.paths):
+            if self.steps < len(path):
+                next_pos = path[self.steps]
+                self.states[idx] = next_pos
+                all_reached = False
+            elif not self.reached[idx]:
+                # Robot has reached its destination
+                self.reached[idx] = True
+                # Update the destination cell
+                ex, ey = self.ends[idx]
+                color = self.robot_colors[idx]
+                self.draw_cell(ex, ey, color, f"r{idx + 1}xd{idx + 1}", tag="start_end")
+                logging.info(f"Robot {idx + 1} reached destination.")
+        self.draw_bots()
+
+        if not all_reached:
+            self.steps += 1
+            self.window.after(300, self.run_simulation_step)
+        else:
+            self.update_info_panel(f"Simulation complete in {self.steps} steps.")
+            logging.info(f"Simulation complete in {self.steps} steps.")
+            messagebox.showinfo("Simulation Complete",
+                                f"All robots reached their destinations in {self.steps} steps.\n\n" +
+                                "Total Number of Movements/Commands:\n" +
+                                "\n".join([f"Bot {idx + 1}: {commands}" for idx, commands in enumerate(self.commands_per_bot)]) +
+                                f"\n\nAverage Commands: {sum(self.commands_per_bot)/len(self.commands_per_bot):.2f}\n" +
+                                f"Maximum Commands: {max(self.commands_per_bot)}")
+
+    def draw_start_and_end(self):
+        self.canvas.delete("start_end")
+        for idx, (start, end) in enumerate(zip(self.starts, self.ends)):
+            sx, sy = start
+            ex, ey = end
+            color = self.robot_colors[idx]
+
+            # Start position with 'r1', 'r2', etc.
+            self.draw_cell(sx, sy, color, f"r{idx + 1}", tag="start_end")
+            # End position with 'd1', 'd2', etc.
+            self.draw_cell(ex, ey, "lightgreen", f"d{idx + 1}", tag="start_end")
+
+    def draw_bots(self):
+        self.canvas.delete("bot")
+        for idx, pos in enumerate(self.states):
+            if not self.reached[idx]:
+                x, y = pos
+                x0 = y * self.cell_size + self.cell_size * 0.2
+                y0 = x * self.cell_size + self.cell_size * 0.2
+                x1 = x0 + self.cell_size * 0.6
+                y1 = y0 + self.cell_size * 0.6
+                color = self.robot_colors[idx]
+                self.canvas.create_oval(x0, y0, x1, y1, fill=color, tags="bot")
+                self.canvas.create_text((x0 + x1) / 2, (y0 + y1) / 2, text=str(idx + 1), fill="white")
+
+    def run(self):
+        self.window.mainloop()
+
 
 if __name__ == "__main__":
-    main()
+    grid_size = (10, 10)
+    env = WarehouseEnv(grid_size)
+    gui = WarehouseGUI(env)
+    gui.run()
