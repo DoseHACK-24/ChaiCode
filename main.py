@@ -121,14 +121,11 @@ def detect_conflicts(paths):
                             conflicts.append({'time': t + 1, 'agents': [agent, other_agent],
                                               'loc': [curr_pos, next_pos], 'type': 'edge'})
     return conflicts
-
 def CBS(env, starts, goals):
-    # Initialize the root of the search tree with no constraints and initial paths
     root = {'paths': [], 'constraints': [], 'cost': 0}
-    priorities = {i: 0 for i in range(len(starts))}  # Dynamic priorities
-    stats = {'expanded_nodes': 0}  # For tracking the number of expanded nodes
+    priorities = {i: 0 for i in range(len(starts))}
+    stats = {'expanded_nodes': 0, 'deadlocks': 0}
 
-    # Initial path finding for all agents
     for agent in range(len(starts)):
         path = a_star(env, starts[agent], goals[agent], agent, [], stats)
         if path is None:
@@ -136,21 +133,26 @@ def CBS(env, starts, goals):
         root['paths'].append(path)
         root['cost'] += len(path)
 
-    # Priority queue for managing search nodes
     open_set = [root]
 
-    while open_set:
+    while open_set and stats['deadlocks'] < 25:
         current = open_set.pop(0)
-        stats['expanded_nodes'] += 1  # Counting the CBS node expansion
+        stats['expanded_nodes'] += 1
+
         conflicts = detect_conflicts(current['paths'])
-
+        
         if not conflicts:
-            return current['paths'], stats  # No conflicts, solution found
+            # Simulate turn-based movement
+            final_paths = simulate_turn_based_movement(current['paths'], goals, env)
+            if final_paths:
+                return final_paths, stats
+            else:
+                stats['deadlocks'] += 1
+                continue
 
-        # Handle conflict
-        conflict = conflicts[0]  # Consider handling more than one conflict
+        conflict = conflicts[0]
         for agent in conflict['agents']:
-            new_constraints = list(current['constraints'])  # Copy constraints
+            new_constraints = list(current['constraints'])
             new_constraints.append({
                 'agent': agent,
                 'time': conflict['time'],
@@ -158,28 +160,62 @@ def CBS(env, starts, goals):
                 'type': conflict['type']
             })
 
-            # Re-plan path for the agent with new constraints
             new_paths = current['paths'].copy()
             new_path = a_star(env, starts[agent], goals[agent], agent, new_constraints, stats)
             if new_path is None:
-                continue  # No valid path found, skip this branch
+                continue
 
-            # Create new node in the search tree
             new_paths[agent] = new_path
             new_node = {
                 'paths': new_paths,
                 'constraints': new_constraints,
-                'cost': sum(len(p) for p in new_paths) + sum(priorities.values())  # Adjust cost by priorities
+                'cost': sum(len(p) for p in new_paths) + sum(priorities.values())
             }
             open_set.append(new_node)
 
-            # Adjust priorities to handle deadlocks dynamically
-            priorities[agent] += 1  # Increase priority for the current agent
+            priorities[agent] += 1
 
-        # Sort open set based on the cost to prioritize nodes with lower path costs
         open_set.sort(key=lambda x: x['cost'])
 
-    return None, stats  # If the loop exits without returning, no solution was found
+    return None, stats
+
+def simulate_turn_based_movement(paths, goals, env):
+    max_steps = max(len(path) for path in paths)
+    current_positions = [path[0] for path in paths]
+    new_paths = [[] for _ in paths]
+    
+    for step in range(max_steps):
+        for agent in range(len(paths)):
+            if current_positions[agent] == goals[agent]:
+                new_paths[agent].append(current_positions[agent])
+                continue
+
+            if step < len(paths[agent]) - 1:
+                next_pos = paths[agent][step + 1]
+                if is_move_valid(current_positions, agent, next_pos, env):
+                    current_positions[agent] = next_pos
+                    new_paths[agent].append(next_pos)
+                else:
+                    new_paths[agent].append(current_positions[agent])
+            else:
+                new_paths[agent].append(current_positions[agent])
+
+        if all(pos == goal for pos, goal in zip(current_positions, goals)):
+            return new_paths
+
+    return None  # Deadlock occurred
+
+
+def is_move_valid(positions, agent, next_pos, env):
+    if not env.is_valid_move(next_pos):
+        return False
+    
+    for i, pos in enumerate(positions):
+        if i != agent and pos == next_pos:
+            return False
+    
+    return True
+
 
 class WarehouseGUI:
     def __init__(self, env):
@@ -347,6 +383,36 @@ class WarehouseGUI:
             logging.info(f"No solution found after {stats['expanded_nodes']} commands.")
             self.update_info_panel(f"No solution found after {stats['expanded_nodes']} commands.")
 
+    def start_simulation(self, event):
+            self.states = list(self.starts)
+            self.draw_start_and_end()
+            paths, stats = CBS(self.env, self.starts, self.ends)
+            self.paths = paths
+            if self.paths:
+                self.commands_per_bot = [len(path) - 1 for path in self.paths]
+                average_commands = sum(self.commands_per_bot) / len(self.commands_per_bot)
+                max_commands = max(self.commands_per_bot)
+                logging.info("Total Number of Movements/Commands:")
+                for idx, commands in enumerate(self.commands_per_bot):
+                    logging.info(f"Bot {idx + 1}: {commands} commands")
+                logging.info(f"Average number of commands: {average_commands}")
+                logging.info(f"Maximum number of commands: {max_commands}")
+                logging.info(f"Number of deadlocks encountered: {stats['deadlocks']}")
+                messagebox.showinfo("Simulation Statistics",
+                                    f"Total Commands per Bot:\n" +
+                                    "\n".join([f"Bot {idx + 1}: {commands}" for idx, commands in enumerate(self.commands_per_bot)]) +
+                                    f"\n\nAverage Commands: {average_commands:.2f}\n" +
+                                    f"Maximum Commands: {max_commands}\n" +
+                                    f"Deadlocks Encountered: {stats['deadlocks']}")
+                self.steps = 0
+                self.reached = [False] * len(self.paths)
+                self.update_info_panel("Simulation started.")
+                self.run_simulation_step()
+            else:
+                messagebox.showerror("No Solution", f"No valid paths found for all robots. Deadlocks: {stats['deadlocks']}")
+                logging.info(f"No solution found after {stats['expanded_nodes']} commands. Deadlocks: {stats['deadlocks']}")
+                self.update_info_panel(f"No solution found after {stats['expanded_nodes']} commands. Deadlocks: {stats['deadlocks']}")
+                
     def run_simulation_step(self):
         all_reached = True
         for idx, path in enumerate(self.paths):
