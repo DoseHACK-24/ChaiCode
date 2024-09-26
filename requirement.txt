@@ -1,0 +1,4 @@
+numpy
+tkinter
+heapq
+logging
